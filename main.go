@@ -11,17 +11,16 @@ import (
 func worker(url string, requests <-chan int, results chan<- int, wg *sync.WaitGroup) {
 	defer wg.Done()
 	client := &http.Client{
-		Timeout: 1 * time.Second,
+		Timeout:       5 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error { return http.ErrUseLastResponse }, // Desativa o acompanhamento de redirecionamentos
 	}
 	for range requests {
 		resp, err := client.Get(url)
 		if err != nil {
-			//fmt.Println("Erro ao fazer a requisição:", err)
+			results <- -1
 			continue
 		}
-		if resp.StatusCode != 0 {
-			results <- resp.StatusCode
-		}
+		results <- resp.StatusCode
 		resp.Body.Close()
 	}
 }
@@ -63,32 +62,24 @@ func main() {
 	}()
 
 	statusCounts := make(map[int]int)
-	errorStatusCodes := make(map[int]bool)
 	for status := range results {
 		statusCounts[status]++
-		if status != 200 {
-			errorStatusCodes[status] = true
-		}
 	}
 
 	duration := time.Since(start)
 
 	fmt.Printf("Tempo total gasto: %v\n", duration)
 	fmt.Printf("Quantidade total de requests: %d\n", *totalRequests)
-	for status, count := range statusCounts {
-		if status == 0 {
-			fmt.Printf("Erro ao fazer request: %d\n", count)
-		} else {
-			fmt.Printf("Status %d: %d requests\n", status, count)
-		}
-	}
+	fmt.Printf("Quantidade de requests com status HTTP 200: %d\n", statusCounts[200])
 
-	if len(errorStatusCodes) > 0 {
-		fmt.Println("Códigos de status HTTP de erro capturados:")
-		for status := range errorStatusCodes {
-			fmt.Printf("Status %d\n", status)
+	fmt.Println("Distribuição de códigos de status HTTP:")
+	for status, count := range statusCounts {
+		if status != 200 {
+			if status == -1 {
+				fmt.Printf("Erro de rede ou timeout: %d requests\n", count)
+			} else {
+				fmt.Printf("Status %d: %d requests\n", status, count)
+			}
 		}
-	} else {
-		fmt.Println("Nenhum código de status HTTP de erro encontrado.")
 	}
 }
